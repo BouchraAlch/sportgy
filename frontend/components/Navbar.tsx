@@ -4,14 +4,34 @@ import { useEffect, useState, useRef } from "react";
 import Link from "next/link";
 import { createSupabaseBrowserClient } from "@/lib/supabaseBrowser";
 import { signOutUser } from "@/lib/auth";
+import AuthModal from "@/components/AuthModal";
 
 export default function Navbar() {
   const [user, setUser] = useState<any>(null);
   const [loadingAuth, setLoadingAuth] = useState(true);
   const [profileOpen, setProfileOpen] = useState(false);
 
+  // Auth modal state
+  const [authModalOpen, setAuthModalOpen] = useState(false);
+  const [authModalMode, setAuthModalMode] = useState<"login" | "signup">(
+    "login"
+  );
+
   const profileRef = useRef<HTMLDivElement>(null);
 
+
+
+
+
+
+
+
+
+  // Handles authentication state in the Navbar:
+// - Checks if a user is already logged in when the Navbar loads.
+// - Updates the user state based on the current Supabase session.
+// - Listens for login/logout changes and updates the Navbar automatically.
+// - Stops listening when the Navbar is removed from the page.
   useEffect(() => {
     const supabase = createSupabaseBrowserClient();
 
@@ -49,6 +69,15 @@ export default function Navbar() {
     };
   }, []);
 
+
+
+
+
+
+
+
+
+
   // Close profile menu when clicking outside
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -67,6 +96,13 @@ export default function Navbar() {
     };
   }, []);
 
+
+
+
+
+
+
+
   async function handleLogout() {
     try {
       await signOutUser();
@@ -81,6 +117,22 @@ export default function Navbar() {
     }
   }
 
+
+
+
+
+
+  function openAuthModal(mode: "login" | "signup") {
+    setAuthModalMode(mode);
+    setAuthModalOpen(true);
+  }
+
+
+
+
+
+
+  
   return (
     <>
       {/* Fixed header */}
@@ -102,10 +154,14 @@ export default function Navbar() {
             <div className="flex items-center space-x-6">
               <Link
                 href="/"
-                className="text-2xl font-black text-white tracking-tight flex items-center gap-1"
+                className="flex items-center gap-1"
+                aria-label="SportGy home"
               >
-                <span>Sporty</span>
-                <span className="text-yellow-400">.</span>
+                <img
+                  src="/logo.png"
+                  alt="SportGy"
+                  className="h-9 md:h-10 w-auto"
+                />
               </Link>
 
               <div className="hidden md:flex items-center space-x-4 text-sm font-semibold text-white/80">
@@ -285,25 +341,33 @@ export default function Navbar() {
                      NOT LOGGED IN
                      ========================= */
                   <>
-                    <Link
-                      href="/signup"
+                    <button
+                      type="button"
+                      onClick={() => openAuthModal("signup")}
                       className="bg-transparent border border-white/60 hover:border-yellow-400 hover:text-yellow-400 text-white text-xs md:text-sm font-semibold px-4 py-2 rounded-lg transition-colors"
                     >
                       Sign Up
-                    </Link>
+                    </button>
 
-                    <Link
-                      href="/login"
+                    <button
+                      type="button"
+                      onClick={() => openAuthModal("login")}
                       className="bg-yellow-400 hover:bg-yellow-300 text-black text-xs md:text-sm font-bold px-4 py-2 rounded-lg transition-colors shadow-sm"
                     >
                       Get Started
-                    </Link>
+                    </button>
                   </>
                 ))}
             </div>
           </nav>
         </div>
       </div>
+
+      <AuthModal
+        isOpen={authModalOpen}
+        onClose={() => setAuthModalOpen(false)}
+        initialMode={authModalMode}
+      />
 
       <style jsx global>{`
         @keyframes marquee {

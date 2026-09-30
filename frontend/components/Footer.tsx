@@ -6,11 +6,11 @@ export default function Footer() {
       <div className="max-w-6xl mx-auto flex flex-col md:flex-row justify-between items-center gap-6">
         <div className="text-center md:text-left">
           <h4 className="text-lg font-black text-white mb-1">
-            Sporty
+            SportGy
           </h4>
 
           <p className="text-xs text-slate-400">
-            © 2026 Sporty Platform. All rights reserved.
+            © 2026 SportGy Platform. All rights reserved.
           </p>
         </div>
 

@@ -100,15 +100,15 @@ export default function AuthModal({
           break;
 
         case "coach":
-          router.push("/coach/dashboard");
+          router.push("/coach");
           break;
 
         case "club_owner":
-          router.push("/club-owner/dashboard");
+          router.push("/club-owner");
           break;
 
         case "admin":
-          router.push("/admin/dashboard");
+          router.push("/admin");
           break;
 
         default:

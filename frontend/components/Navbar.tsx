@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useEffect, useState, useRef } from "react";
@@ -11,7 +12,7 @@ export default function Navbar() {
   const [loadingAuth, setLoadingAuth] = useState(true);
   const [profileOpen, setProfileOpen] = useState(false);
 
-  // Auth modal state
+  // Authentication modal state
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [authModalMode, setAuthModalMode] = useState<"login" | "signup">(
     "login"
@@ -19,19 +20,7 @@ export default function Navbar() {
 
   const profileRef = useRef<HTMLDivElement>(null);
 
-
-
-
-
-
-
-
-
-  // Handles authentication state in the Navbar:
-// - Checks if a user is already logged in when the Navbar loads.
-// - Updates the user state based on the current Supabase session.
-// - Listens for login/logout changes and updates the Navbar automatically.
-// - Stops listening when the Navbar is removed from the page.
+  // Check the current user and listen for authentication changes
   useEffect(() => {
     const supabase = createSupabaseBrowserClient();
 
@@ -69,16 +58,7 @@ export default function Navbar() {
     };
   }, []);
 
-
-
-
-
-
-
-
-
-
-  // Close profile menu when clicking outside
+  // Close the profile menu when clicking outside
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (
@@ -96,13 +76,7 @@ export default function Navbar() {
     };
   }, []);
 
-
-
-
-
-
-
-
+  // Handle user logout
   async function handleLogout() {
     try {
       await signOutUser();
@@ -110,34 +84,23 @@ export default function Navbar() {
       setUser(null);
       setProfileOpen(false);
 
-      // Optional: send user back to homepage
+      // Redirect to the homepage
       window.location.href = "/";
     } catch (error) {
       console.error("Logout error:", error);
     }
   }
 
-
-
-
-
-
+  // Open the authentication modal
   function openAuthModal(mode: "login" | "signup") {
     setAuthModalMode(mode);
     setAuthModalOpen(true);
   }
 
-
-
-
-
-
-  
   return (
     <>
-      {/* Fixed header */}
+      {/* Fixed Header */}
       <div className="fixed top-0 left-0 w-full z-50">
-
         {/* Announcement Banner */}
         <div className="w-full bg-black text-yellow-400 text-sm font-medium py-2 overflow-hidden whitespace-nowrap border-b border-slate-800">
           <div className="inline-block animate-marquee pl-[100%]">
@@ -150,7 +113,7 @@ export default function Navbar() {
         <div className="w-full flex justify-center px-4 mt-2">
           <nav className="w-full max-w-5xl bg-black/40 backdrop-blur-md border border-white/10 rounded-2xl px-4 md:px-8 py-2 flex items-center justify-between shadow-lg shadow-black/30">
 
-            {/* Logo + Navigation */}
+            {/* Logo and Navigation */}
             <div className="flex items-center space-x-6">
               <Link
                 href="/"
@@ -164,6 +127,7 @@ export default function Navbar() {
                 />
               </Link>
 
+              {/* Desktop Navigation Links */}
               <div className="hidden md:flex items-center space-x-4 text-sm font-semibold text-white/80">
                 <Link
                   href="/"
@@ -171,7 +135,8 @@ export default function Navbar() {
                 >
                   Home
                 </Link>
-               <Link
+
+                <Link
                   href="/booking"
                   className="hover:text-yellow-400 transition-colors"
                 >
@@ -191,33 +156,29 @@ export default function Navbar() {
                 >
                   Competitions
                 </Link>
-                 <Link
+
+                <Link
                   href="/marketplace"
                   className="hover:text-yellow-400 transition-colors"
                 >
                   Marketplace
                 </Link>
-               <Link
-                  href="/contact"
+
+                <Link
+                  href="/support"
                   className="hover:text-yellow-400 transition-colors"
                 >
-                  Contact
+                  Support
                 </Link>
               </div>
             </div>
 
-            {/* Right Side */}
+            {/* Right Side: Authentication or Profile */}
             <div className="flex items-center space-x-3">
-
               {!loadingAuth &&
                 (user ? (
-                  /* =========================
-                     LOGGED IN
-                     ========================= */
-                  <div
-                    ref={profileRef}
-                    className="relative"
-                  >
+                  /* Logged-in User */
+                  <div ref={profileRef} className="relative">
                     {/* Profile Icon */}
                     <button
                       type="button"
@@ -246,7 +207,7 @@ export default function Navbar() {
                     {profileOpen && (
                       <div className="absolute right-0 mt-3 w-52 bg-black/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-xl shadow-black/40 overflow-hidden">
 
-                        {/* User Info */}
+                        {/* User Information */}
                         <div className="px-4 py-3 border-b border-white/10">
                           <p className="text-sm font-semibold text-white truncate">
                             {user.user_metadata?.full_name || "User"}
@@ -274,7 +235,7 @@ export default function Navbar() {
                             <path
                               strokeLinecap="round"
                               strokeLinejoin="round"
-                              d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.5 20.25a8.25 8.25 0 0 1 15 0"
+                              d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1-7.5 0 8.25 8.25 0 0 1 15 0"
                             />
                           </svg>
 
@@ -302,7 +263,7 @@ export default function Navbar() {
                             />
                           </svg>
 
-                          <span>Paramètres</span>
+                          <span>Settings</span>
                         </Link>
 
                         {/* Logout */}
@@ -324,6 +285,7 @@ export default function Navbar() {
                               strokeLinejoin="round"
                               d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6A2.25 2.25 0 0 0 5.25 5.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15"
                             />
+
                             <path
                               strokeLinecap="round"
                               strokeLinejoin="round"
@@ -331,30 +293,30 @@ export default function Navbar() {
                             />
                           </svg>
 
-                          <span>Déconnexion</span>
+                          <span>Log Out</span>
                         </button>
                       </div>
                     )}
                   </div>
                 ) : (
-                  /* =========================
-                     NOT LOGGED IN
-                     ========================= */
+                  /* Logged-out User */
                   <>
+                    {/* Get Started - Signup */}
                     <button
                       type="button"
                       onClick={() => openAuthModal("signup")}
                       className="bg-transparent border border-white/60 hover:border-yellow-400 hover:text-yellow-400 text-white text-xs md:text-sm font-semibold px-4 py-2 rounded-lg transition-colors"
                     >
-                      Sign Up
+                      Get Started
                     </button>
 
+                    {/* Log In - Login */}
                     <button
                       type="button"
                       onClick={() => openAuthModal("login")}
                       className="bg-yellow-400 hover:bg-yellow-300 text-black text-xs md:text-sm font-bold px-4 py-2 rounded-lg transition-colors shadow-sm"
                     >
-                      Get Started
+                      Log In
                     </button>
                   </>
                 ))}
@@ -363,12 +325,14 @@ export default function Navbar() {
         </div>
       </div>
 
+      {/* Authentication Modal */}
       <AuthModal
         isOpen={authModalOpen}
         onClose={() => setAuthModalOpen(false)}
         initialMode={authModalMode}
       />
 
+      {/* Marquee Animation */}
       <style jsx global>{`
         @keyframes marquee {
           0% {

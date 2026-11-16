@@ -33,6 +33,86 @@ const AVAILABLE_SLOTS = [
   "20:00",
 ];
 
+const SESSION_MINUTES = 90;
+const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+// ------------------------------------------------------------
+// Pure helpers
+// ------------------------------------------------------------
+
+function pad(value: number) {
+  return String(value).padStart(2, "0");
+}
+
+function toIso(date: Date) {
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(
+    date.getDate()
+  )}`;
+}
+
+function formatLongDate(iso: string) {
+  return new Date(`${iso}T00:00:00`).toLocaleDateString("en-US", {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+function addMinutes(time: string, minutes: number) {
+  const [h, m] = time.split(":").map(Number);
+  const total = h * 60 + m + minutes;
+  return `${pad(Math.floor(total / 60) % 24)}:${pad(total % 60)}`;
+}
+
+function Chevron({ direction }: { direction: "left" | "right" }) {
+  return (
+    <svg
+      className="h-4 w-4"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+    >
+      <path d={direction === "left" ? "M15 19l-7-7 7-7" : "M9 5l7 7-7 7"} />
+    </svg>
+  );
+}
+
+const PAGE_STYLES = `
+  @keyframes cardIn {
+    from { opacity: 0; transform: translateY(18px); }
+    to   { opacity: 1; transform: none; }
+  }
+  .card-in { animation: cardIn 600ms cubic-bezier(.22,.61,.36,1) both; }
+
+  @keyframes slideDown {
+    from { opacity: 0; transform: translateY(-8px); }
+    to   { opacity: 1; transform: none; }
+  }
+  .slide-down { animation: slideDown 260ms ease both; }
+
+  @keyframes checkPop {
+    0%   { transform: scale(.4); opacity: 0; }
+    60%  { transform: scale(1.12); opacity: 1; }
+    100% { transform: scale(1); }
+  }
+  .check-pop { animation: checkPop 600ms cubic-bezier(.22,.61,.36,1) both; }
+
+  @keyframes glow {
+    0%, 100% { opacity: .16; transform: scale(1); }
+    50%      { opacity: .3;  transform: scale(1.15); }
+  }
+  .glow { animation: glow 8s ease-in-out infinite; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .card-in, .slide-down, .check-pop, .glow { animation: none !important; }
+  }
+`;
+
 export default function CoachBookingPage() {
   const params = useParams();
 
@@ -56,50 +136,30 @@ export default function CoachBookingPage() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [bookingSuccess, setBookingSuccess] = useState<boolean>(false);
 
-  // UI state only
-  const [dayOpen, setDayOpen] = useState<boolean>(false);
-  const [timeOpen, setTimeOpen] = useState<boolean>(false);
+  // Month shown in the calendar (UI only)
+  const [viewMonth, setViewMonth] = useState<Date>(() => {
+    const t = new Date();
+    return new Date(t.getFullYear(), t.getMonth(), 1);
+  });
 
   const supabase = createSupabaseBrowserClient();
 
-  // Generate dates starting from today for the next 90 days
+  // Dates starting from today for the next 90 days
   const availableDates = useMemo(() => {
     const dates = [];
     const today = new Date();
 
     for (let i = 0; i < 90; i++) {
       const d = new Date(today);
-
       d.setDate(today.getDate() + i);
 
-      const year = d.getFullYear();
-      const month = String(d.getMonth() + 1).padStart(2, "0");
-      const day = String(d.getDate()).padStart(2, "0");
-
-      const iso = `${year}-${month}-${day}`;
-
-      dates.push({
-        iso,
-        dateObj: d,
-        dayName: d.toLocaleDateString("en-US", {
-          weekday: "short",
-        }),
-        dayNumber: d.getDate(),
-        monthName: d.toLocaleDateString("en-US", {
-          month: "short",
-        }),
-        year,
-        monthYearHeader: d.toLocaleDateString("en-US", {
-          month: "long",
-          year: "numeric",
-        }),
-      });
+      dates.push({ iso: toIso(d), dateObj: d });
     }
 
     return dates;
   }, []);
 
-  // Compute three-month boundary dates
+  // Booking window boundaries
   const todayIso = availableDates[0]?.iso;
   const maxDateIso = availableDates[availableDates.length - 1]?.iso;
 
@@ -130,18 +190,17 @@ export default function CoachBookingPage() {
           setClub(clubData);
         }
 
+        // Fetch coach information
         const { data: coachData, error: coachError } = await supabase
           .from("coaches")
           .select(`
             id,
+            full_name,
             sport_id,
             title,
             bio,
             hourly_rate,
-            image_url,
-            profiles (
-              full_name
-            )
+            image_url
           `)
           .eq("id", coachId)
           .single();
@@ -149,20 +208,18 @@ export default function CoachBookingPage() {
         if (coachError) {
           console.error("Coach Fetch Error:", coachError.message);
         } else if (coachData) {
-          const rawCoach: any = coachData;
-
           setCoach({
-            id: rawCoach.id,
-            full_name: rawCoach.profiles?.full_name || "Coach",
-            title: rawCoach.title,
-            bio: rawCoach.bio,
-            hourly_rate: rawCoach.hourly_rate,
-            image_url: rawCoach.image_url,
-            sport_id: rawCoach.sport_id,
+            id: coachData.id,
+            full_name: coachData.full_name || "Coach",
+            title: coachData.title,
+            bio: coachData.bio,
+            hourly_rate: coachData.hourly_rate,
+            image_url: coachData.image_url,
+            sport_id: coachData.sport_id,
           });
         }
 
-        // Fetch existing bookings across the entire 3-month window
+        // Fetch existing bookings across the whole booking window
         if (todayIso && maxDateIso) {
           const { data: bookingsData } = await supabase
             .from("bookings")
@@ -195,19 +252,84 @@ export default function CoachBookingPage() {
     availableDates,
   ]);
 
+  // ------------------------------------------------------------
+  // Calendar data
+  // ------------------------------------------------------------
+
+  const monthCells = useMemo(() => {
+    const year = viewMonth.getFullYear();
+    const month = viewMonth.getMonth();
+
+    const offset = (new Date(year, month, 1).getDay() + 6) % 7;
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+    const cells: (string | null)[] = Array(offset).fill(null);
+
+    for (let day = 1; day <= daysInMonth; day++) {
+      cells.push(toIso(new Date(year, month, day)));
+    }
+
+    return cells;
+  }, [viewMonth]);
+
+  // Days where every slot is already taken
+  const fullDays = useMemo(() => {
+    const counts = new Map<string, number>();
+
+    existingBookings.forEach((b) => {
+      counts.set(b.booking_date, (counts.get(b.booking_date) ?? 0) + 1);
+    });
+
+    return new Set(
+      Array.from(counts.entries())
+        .filter(([, count]) => count >= AVAILABLE_SLOTS.length)
+        .map(([iso]) => iso)
+    );
+  }, [existingBookings]);
+
+  const monthIndex = (iso: string | undefined) => {
+    if (!iso) return 0;
+    const [y, m] = iso.split("-").map(Number);
+    return y * 12 + (m - 1);
+  };
+
+  const viewIndex = viewMonth.getFullYear() * 12 + viewMonth.getMonth();
+  const canGoPrev = viewIndex > monthIndex(todayIso);
+  const canGoNext = viewIndex < monthIndex(maxDateIso);
+
+  function changeMonth(delta: number) {
+    setViewMonth(
+      (current) =>
+        new Date(current.getFullYear(), current.getMonth() + delta, 1)
+    );
+  }
+
+  // ------------------------------------------------------------
+  // Slot helpers
+  // ------------------------------------------------------------
+
   const isSlotBooked = (time: string) => {
     return existingBookings.some(
       (b) =>
-        b.booking_date === selectedDate &&
-        b.start_time.startsWith(time)
+        b.booking_date === selectedDate && b.start_time.startsWith(time)
     );
   };
 
+  // Today's slots that already started cannot be booked.
+  const isSlotPast = (time: string) => {
+    if (selectedDate !== todayIso) return false;
+
+    const now = new Date();
+    return time <= `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+  };
+
+  // ------------------------------------------------------------
+  // Booking
+  // ------------------------------------------------------------
+
   const handleBooking = async () => {
     if (!selectedDate || !selectedTime || !coach) {
-      setErrorMessage(
-        "Please select both a date and an available time slot."
-      );
+      setErrorMessage("Please select both a date and an available time slot.");
       return;
     }
 
@@ -226,31 +348,20 @@ export default function CoachBookingPage() {
         return;
       }
 
-      const [hours, minutes] = selectedTime.split(":").map(Number);
-
-      const endHour = hours + 1;
-      const endMinutes = minutes + 30;
-
-      const formattedEndTime = `${String(endHour).padStart(
-        2,
-        "0"
-      )}:${String(endMinutes % 60).padStart(2, "0")}:00`;
-
+      const formattedEndTime = `${addMinutes(selectedTime, SESSION_MINUTES)}:00`;
       const formattedStartTime = `${selectedTime}:00`;
 
-      const { error: insertError } = await supabase
-        .from("bookings")
-        .insert({
-          user_id: user.id,
-          coach_id: coach.id,
-          club_id: clubId,
-          sport_id: sportId,
-          booking_date: selectedDate,
-          start_time: formattedStartTime,
-          end_time: formattedEndTime,
-          total_price: coach.hourly_rate,
-          status: "confirmed",
-        });
+      const { error: insertError } = await supabase.from("bookings").insert({
+        user_id: user.id,
+        coach_id: coach.id,
+        club_id: clubId,
+        sport_id: sportId,
+        booking_date: selectedDate,
+        start_time: formattedStartTime,
+        end_time: formattedEndTime,
+        total_price: coach.hourly_rate,
+        status: "confirmed",
+      });
 
       if (insertError) {
         console.error(
@@ -259,51 +370,56 @@ export default function CoachBookingPage() {
           insertError.details
         );
 
-        setErrorMessage(
-          insertError.message || "Failed to confirm booking."
-        );
+        setErrorMessage(insertError.message || "Failed to confirm booking.");
       } else {
         setBookingSuccess(true);
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error(
         "Unexpected booking error:",
-        err?.message || err
+        err instanceof Error ? err.message : err
       );
 
-      setErrorMessage(
-        "An unexpected error occurred. Please try again."
-      );
+      setErrorMessage("An unexpected error occurred. Please try again.");
     } finally {
       setSubmitting(false);
     }
   };
 
+  // ------------------------------------------------------------
+  // Loading / not found
+  // ------------------------------------------------------------
+
   if (loading) {
     return (
-      <div className="min-h-screen bg-white text-slate-900 pt-32 pb-20 px-4">
-        <div className="max-w-7xl mx-auto space-y-8">
-          <div className="h-64 bg-slate-100 border border-slate-200 rounded-3xl animate-pulse" />
-          <div className="h-96 bg-slate-100 border border-slate-200 rounded-3xl animate-pulse" />
+      <main className="min-h-screen bg-[#FAF7F0] pb-24">
+        <div className="bg-neutral-950 px-4 pb-24 pt-32 sm:px-6 lg:px-8">
+          <div className="mx-auto max-w-7xl space-y-6">
+            <div className="h-6 w-80 animate-pulse rounded bg-white/10" />
+            <div className="h-10 w-72 animate-pulse rounded-lg bg-white/10" />
+          </div>
         </div>
-      </div>
+
+        <div className="relative z-10 mx-auto -mt-10 grid max-w-7xl gap-6 px-4 sm:px-6 lg:grid-cols-3 lg:px-8">
+          <div className="h-[520px] animate-pulse rounded-3xl bg-stone-300" />
+          <div className="h-[520px] animate-pulse rounded-3xl bg-stone-200 lg:col-span-2" />
+        </div>
+      </main>
     );
   }
 
   if (!coach || !club) {
     return (
-      <div className="min-h-screen bg-white text-slate-900 pt-32 pb-20 px-4 text-center">
-        <h1 className="text-3xl font-bold mb-4">
-          Coach or Club Not Found
-        </h1>
+      <main className="min-h-screen bg-[#FAF7F0] px-4 pb-20 pt-40 text-center text-stone-900">
+        <h1 className="mb-4 text-2xl font-bold">Coach or club not found</h1>
 
         <Link
           href={`/booking/${sportId}/${clubId}`}
-          className="text-yellow-500 hover:text-yellow-600 hover:underline"
+          className="inline-block rounded-xl bg-yellow-400 px-5 py-2.5 text-sm font-bold text-black transition hover:bg-yellow-300"
         >
-          ← Back to Club
+          Back to club
         </Link>
-      </div>
+      </main>
     );
   }
 
@@ -311,147 +427,179 @@ export default function CoachBookingPage() {
     coach.image_url ||
     "https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=80&w=600&auto=format&fit=crop";
 
-  const selectedDateObject = availableDates.find(
-    (date) => date.iso === selectedDate
-  );
+  const hasSelection = !!selectedDate && !!selectedTime;
+  const price = Number(coach.hourly_rate).toLocaleString();
 
-  const selectedDateLabel = selectedDateObject
-    ? `${selectedDateObject.dayName}, ${selectedDateObject.monthName} ${selectedDateObject.dayNumber}, ${selectedDateObject.year}`
-    : "Select a day";
+  // ------------------------------------------------------------
+  // Page
+  // ------------------------------------------------------------
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 pt-32 pb-20 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-7xl mx-auto">
+    <main className="min-h-screen bg-[#FAF7F0] pb-24 text-stone-900">
+      <style>{PAGE_STYLES}</style>
 
-        {/* =========================================================
-            BACK BUTTON
-        ========================================================= */}
-        <div className="mb-8">
+      {/* HEADER */}
+
+      <header className="relative z-0 overflow-hidden bg-neutral-950 px-4 pb-24 pt-32 text-white sm:px-6 lg:px-8">
+        <div className="glow pointer-events-none absolute -right-24 -top-24 h-96 w-96 rounded-full bg-yellow-400 blur-[130px]" />
+
+        <div className="relative mx-auto max-w-7xl">
           <Link
             href={`/booking/${sportId}/${clubId}`}
-            className="inline-flex items-center text-sm font-medium text-slate-500 hover:text-yellow-600 transition-colors"
+            className="inline-flex items-center text-sm font-medium text-white/60 transition-colors hover:text-yellow-400"
           >
             <svg
-              className="w-4 h-4 mr-2"
+              className="mr-2 h-4 w-4"
               fill="none"
               stroke="currentColor"
+              strokeWidth="2"
               viewBox="0 0 24 24"
+              aria-hidden="true"
             >
               <path
                 strokeLinecap="round"
                 strokeLinejoin="round"
-                strokeWidth={2}
                 d="M15 19l-7-7 7-7"
               />
             </svg>
-
             Back to {club.name}
           </Link>
+
+          <h1 className="mt-8 text-3xl font-black tracking-tight sm:text-5xl">
+            {bookingSuccess ? (
+              <>
+                Booking <span className="text-yellow-400">confirmed</span>
+              </>
+            ) : (
+              <>
+                Book a <span className="text-yellow-400">Session</span>
+              </>
+            )}
+          </h1>
+
+          <p className="mt-4 max-w-2xl text-sm leading-7 text-white/65 sm:text-base">
+            {bookingSuccess
+              ? "Everything is set. Here is a summary of your session."
+              : `Choose a day and a time to train with ${coach.full_name}.`}
+          </p>
         </div>
+      </header>
 
-        {/* =========================================================
-            SUCCESS
-        ========================================================= */}
+      <div className="relative z-10 mx-auto -mt-10 max-w-7xl px-4 sm:px-6 lg:px-8">
+        {/* SUCCESS */}
+
         {bookingSuccess ? (
-          <div className="bg-white border border-slate-200 rounded-3xl p-8 sm:p-12 shadow-sm">
-            <div className="max-w-2xl mx-auto text-center space-y-6">
-
-              <div className="w-16 h-16 bg-yellow-400 text-slate-900 rounded-full flex items-center justify-center mx-auto text-3xl font-black shadow-lg shadow-yellow-400/20">
-                ✓
+          <div className="card-in mx-auto max-w-2xl rounded-3xl border border-stone-200 bg-white p-8 shadow-xl shadow-stone-900/5 sm:p-12">
+            <div className="space-y-6 text-center">
+              <div className="check-pop mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-yellow-400 text-black shadow-lg shadow-yellow-400/30">
+                <svg
+                  viewBox="0 0 24 24"
+                  className="h-8 w-8"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="3"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M4 12.5l5 5L20 6.5" />
+                </svg>
               </div>
 
-              <h2 className="text-3xl sm:text-4xl font-extrabold text-slate-900">
-                Booking Confirmed!
+              <h2 className="text-2xl font-extrabold text-stone-900 sm:text-3xl">
+                Your session is scheduled
               </h2>
 
-              <p className="text-slate-600 leading-relaxed">
-                Your session with{" "}
-                <span className="text-yellow-600 font-bold">
-                  {coach.full_name}
-                </span>{" "}
-                at{" "}
-                <span className="text-slate-900 font-semibold">
-                  {club.name}
-                </span>{" "}
-                on{" "}
-                <span className="text-slate-900 font-semibold">
-                  {selectedDate}
-                </span>{" "}
-                at{" "}
-                <span className="text-yellow-600 font-bold">
-                  {selectedTime}
-                </span>{" "}
-                has been scheduled.
+              <dl className="divide-y divide-stone-100 rounded-2xl border border-stone-200 bg-[#FBF8F1] text-left text-sm">
+                {[
+                  ["Coach", coach.full_name],
+                  ["Club", club.name],
+                  ["Date", formatLongDate(selectedDate)],
+                  [
+                    "Time",
+                    `${selectedTime} to ${addMinutes(
+                      selectedTime,
+                      SESSION_MINUTES
+                    )}`,
+                  ],
+                  ["Price", `${price} DZD`],
+                ].map(([label, value]) => (
+                  <div
+                    key={label}
+                    className="flex items-center justify-between gap-4 px-5 py-3.5"
+                  >
+                    <dt className="text-stone-500">{label}</dt>
+                    <dd className="text-right font-semibold text-stone-900">
+                      {value}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+
+              <p className="text-sm leading-6 text-stone-500">
+                Keep an eye on your notifications for updates on your
+                session.
               </p>
 
-              <div className="pt-4 flex flex-wrap justify-center gap-4">
+              <div className="flex flex-wrap justify-center gap-3 pt-2">
                 <Link
                   href="/dashboard"
-                  className="px-6 py-3 rounded-xl bg-yellow-400 hover:bg-yellow-300 text-slate-900 font-bold text-sm transition-colors shadow-md"
+                  className="rounded-xl bg-yellow-400 px-6 py-3 text-sm font-bold text-black shadow-md transition-all hover:-translate-y-0.5 hover:bg-yellow-300"
                 >
-                  Go to My Bookings
+                  Go to my bookings
                 </Link>
 
                 <Link
                   href="/"
-                  className="px-6 py-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-semibold text-sm transition-colors"
+                  className="rounded-xl bg-stone-100 px-6 py-3 text-sm font-semibold text-stone-800 transition-colors hover:bg-stone-200"
                 >
-                  Back to Home
+                  Back to home
                 </Link>
               </div>
             </div>
           </div>
         ) : (
-          /* =======================================================
-             MAIN TWO COLUMN SECTION
-          ======================================================== */
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+          <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-3">
+            {/* LEFT: COACH INFORMATION */}
 
-            {/* =====================================================
-                LEFT — COACH INFORMATION
-            ====================================================== */}
-            <section className="lg:col-span-1 bg-black rounded-3xl overflow-hidden shadow-xl">
-
-              <div className="relative aspect-[4/4.5] w-full bg-slate-900 overflow-hidden">
+            <section className="card-in overflow-hidden rounded-3xl bg-neutral-950 text-white shadow-xl lg:sticky lg:top-28">
+              <div className="relative aspect-[4/4] w-full overflow-hidden bg-neutral-900">
                 <Image
                   src={coachAvatar}
                   alt={coach.full_name}
                   fill
+                  sizes="(max-width: 1024px) 100vw, 33vw"
                   className="object-cover"
                 />
 
-                <div className="absolute inset-0 bg-gradient-to-t from-black via-black/20 to-transparent" />
+                <div className="absolute inset-0 bg-gradient-to-t from-neutral-950 via-neutral-950/20 to-transparent" />
 
-                <div className="absolute top-5 left-5">
-                  <span className="inline-flex items-center px-3 py-1.5 rounded-full bg-yellow-400 text-black text-[10px] font-black uppercase tracking-[0.15em] shadow-lg">
+                <div className="absolute left-5 top-5">
+                  <span className="inline-flex items-center rounded-full bg-yellow-400 px-3 py-1.5 text-xs font-bold text-black shadow-lg">
                     {sport?.name || "Sport"}
                   </span>
                 </div>
 
-                <div className="absolute left-5 right-5 bottom-5 text-white">
-                  <p className="text-yellow-400 text-xs font-bold uppercase tracking-[0.18em] mb-2">
-                    Professional Coach
-                  </p>
-
-                  <h1 className="text-3xl sm:text-4xl font-black tracking-tight leading-tight">
+                <div className="absolute bottom-5 left-5 right-5">
+                  <h2 className="text-3xl font-black leading-tight tracking-tight">
                     {coach.full_name}
-                  </h1>
+                  </h2>
 
-                  <p className="text-white/70 text-sm mt-1 font-medium">
+                  <p className="mt-1 text-sm font-medium text-yellow-300">
                     {coach.title}
                   </p>
                 </div>
               </div>
 
-              <div className="p-6 sm:p-7 text-white">
-
-                <div className="flex items-center gap-3 pb-5 border-b border-white/10">
-                  <div className="w-9 h-9 rounded-xl bg-white/10 flex items-center justify-center flex-shrink-0">
+              <div className="p-6 sm:p-7">
+                <div className="flex items-center gap-3 border-b border-white/10 pb-5">
+                  <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-white/10">
                     <svg
-                      className="w-4 h-4 text-yellow-400"
+                      className="h-4 w-4 text-yellow-400"
                       fill="none"
                       stroke="currentColor"
                       viewBox="0 0 24 24"
+                      aria-hidden="true"
                     >
                       <path
                         strokeLinecap="round"
@@ -459,458 +607,290 @@ export default function CoachBookingPage() {
                         strokeWidth={1.8}
                         d="M12 21s7-6.2 7-12a7 7 0 10-14 0c0 5.8 7 12 7 12z"
                       />
-                      <circle
-                        cx="12"
-                        cy="9"
-                        r="2.2"
-                      />
+                      <circle cx="12" cy="9" r="2.2" />
                     </svg>
                   </div>
 
                   <div>
-                    <p className="text-[10px] uppercase tracking-[0.16em] text-white/40 font-bold">
-                      Club
-                    </p>
-
                     <p className="text-sm font-semibold text-white">
                       {club.name}
                     </p>
-
-                    <p className="text-xs text-white/45 mt-0.5">
-                      {club.city}
-                    </p>
+                    <p className="mt-0.5 text-xs text-white/50">{club.city}</p>
                   </div>
                 </div>
 
                 {coach.bio && (
-                  <div className="py-5 border-b border-white/10">
-                    <p className="text-[10px] uppercase tracking-[0.16em] text-white/40 font-bold mb-2">
-                      About the Coach
-                    </p>
+                  <div className="border-b border-white/10 py-5">
+                    <h3 className="mb-2 text-sm font-semibold text-white/80">
+                      About the coach
+                    </h3>
 
-                    <p className="text-sm text-white/65 leading-relaxed">
+                    <p className="text-sm leading-relaxed text-white/60">
                       {coach.bio}
                     </p>
                   </div>
                 )}
 
                 <div className="pt-5">
-                  <p className="text-[10px] uppercase tracking-[0.16em] text-white/40 font-bold mb-2">
-                    Session Price
-                  </p>
+                  <p className="mb-1 text-sm text-white/50">Session price</p>
 
                   <div className="flex items-end gap-2">
                     <span className="text-3xl font-black text-yellow-400">
-                      {coach.hourly_rate} DZD
+                      {price} DZD
                     </span>
 
-                    <span className="text-xs text-white/40 pb-1">
-                      / 90 min
+                    <span className="pb-1 text-xs text-white/40">
+                      / {SESSION_MINUTES} min
                     </span>
                   </div>
                 </div>
               </div>
             </section>
 
-            {/* =====================================================
-                RIGHT — BOOKING
-            ====================================================== */}
-            <section className="lg:col-span-2 bg-white border border-slate-200 rounded-3xl shadow-sm overflow-visible">
+            {/* RIGHT: BOOKING */}
 
-              {/* Header */}
-              <div className="p-6 sm:p-8 border-b border-slate-200">
+            <section
+              className="card-in rounded-3xl border border-stone-200 bg-white shadow-xl shadow-stone-900/5 lg:col-span-2"
+              style={{ animationDelay: "100ms" }}
+            >
+              <div className="space-y-8 p-6 sm:p-8">
+                {/* CHOOSE DAY */}
 
-                <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
-
-                  <div>
-
-
-                    <h2 className="text-2xl sm:text-3xl font-black tracking-tight text-slate-900">
-                      Book a{" "}
-                      <span className="text-yellow-500">
-                        Session
+                <div>
+                  <div className="mb-4 flex items-center justify-between gap-3">
+                    <h2 className="flex items-center gap-3 text-lg font-extrabold">
+                      <span className="flex h-7 w-7 items-center justify-center rounded-full bg-yellow-400 text-sm font-black text-black">
+                        1
                       </span>
+                      Choose a day
                     </h2>
 
-                    <p className="text-sm text-slate-500 mt-1.5">
-                      Choose your preferred day and time.
-                    </p>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => changeMonth(-1)}
+                        disabled={!canGoPrev}
+                        aria-label="Previous month"
+                        className="flex h-9 w-9 items-center justify-center rounded-lg border border-stone-200 text-stone-600 transition hover:border-yellow-400 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-stone-200"
+                      >
+                        <Chevron direction="left" />
+                      </button>
+
+                      <span className="min-w-[130px] text-center text-sm font-bold text-stone-800">
+                        {viewMonth.toLocaleDateString("en-US", {
+                          month: "long",
+                          year: "numeric",
+                        })}
+                      </span>
+
+                      <button
+                        type="button"
+                        onClick={() => changeMonth(1)}
+                        disabled={!canGoNext}
+                        aria-label="Next month"
+                        className="flex h-9 w-9 items-center justify-center rounded-lg border border-stone-200 text-stone-600 transition hover:border-yellow-400 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-stone-200"
+                      >
+                        <Chevron direction="right" />
+                      </button>
+                    </div>
                   </div>
 
+                  <div className="rounded-2xl border border-stone-200 bg-[#FBF8F1] p-3 sm:p-4">
+                    <div className="mb-2 grid grid-cols-7 text-center text-xs font-semibold text-stone-400">
+                      {WEEKDAYS.map((day) => (
+                        <span key={day} className="py-1">
+                          {day}
+                        </span>
+                      ))}
+                    </div>
 
-                </div>
-              </div>
+                    <div className="grid grid-cols-7 gap-1.5">
+                      {monthCells.map((iso, index) => {
+                        if (!iso) return <span key={`empty-${index}`} />;
 
-              {/* Booking Controls */}
-              <div className="p-6 sm:p-8 space-y-6">
+                        const inRange =
+                          !!todayIso &&
+                          !!maxDateIso &&
+                          iso >= todayIso &&
+                          iso <= maxDateIso;
 
-                {/* =================================================
-                    DAY SELECTOR
-                ================================================== */}
-                <div className="space-y-2">
+                        const full = fullDays.has(iso);
+                        const disabled = !inRange || full;
+                        const isSelected = selectedDate === iso;
+                        const isToday = iso === todayIso;
 
-                  <label className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">
-                    Choose Day
-                  </label>
-
-                  <div className="relative">
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setDayOpen((prev) => !prev);
-                        setTimeOpen(false);
-                      }}
-                      className={`w-full flex items-center justify-between gap-4 px-5 py-4 rounded-2xl border transition-all duration-200 ${
-                        dayOpen
-                          ? "border-yellow-400 bg-yellow-50/40 ring-2 ring-yellow-100"
-                          : "border-slate-200 bg-slate-50 hover:border-yellow-300 hover:bg-yellow-50/30"
-                      }`}
-                    >
-                      <div className="flex items-center gap-3">
-
-                        <div className="w-10 h-10 rounded-xl bg-black text-yellow-400 flex items-center justify-center">
-                          <svg
-                            className="w-5 h-5"
-                            fill="none"
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
+                        return (
+                          <button
+                            key={iso}
+                            type="button"
+                            disabled={disabled}
+                            aria-pressed={isSelected}
+                            aria-label={`${formatLongDate(iso)}${
+                              full ? ", fully booked" : ""
+                            }`}
+                            onClick={() => {
+                              setSelectedDate(iso);
+                              setSelectedTime("");
+                            }}
+                            className={`relative flex aspect-square items-center justify-center rounded-xl text-sm font-bold transition-all duration-200 ${
+                              isSelected
+                                ? "bg-yellow-400 text-black shadow-md shadow-yellow-400/30"
+                                : disabled
+                                  ? "cursor-not-allowed text-stone-300"
+                                  : "bg-white text-stone-800 hover:bg-yellow-100"
+                            } ${full && inRange ? "line-through" : ""}`}
                           >
-                            <rect
-                              x="3"
-                              y="4"
-                              width="18"
-                              height="18"
-                              rx="2"
-                              ry="2"
-                              strokeWidth="1.8"
-                            />
-                            <path
-                              d="M16 2v4M8 2v4M3 10h18"
-                              strokeWidth="1.8"
-                              strokeLinecap="round"
-                            />
-                          </svg>
-                        </div>
+                            {Number(iso.slice(8))}
 
-                        <div className="text-left">
-                          <p className="text-[10px] uppercase tracking-[0.14em] text-slate-400 font-bold">
-                            Selected Day
-                          </p>
+                            {isToday && !isSelected && (
+                              <span className="absolute bottom-1.5 h-1 w-1 rounded-full bg-yellow-500" />
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
 
-                          <p className="text-sm sm:text-base font-bold text-slate-900 mt-0.5">
-                            {selectedDateLabel}
-                          </p>
-                        </div>
-                      </div>
+                {/* CHOOSE TIME */}
 
-                      <svg
-                        className={`w-5 h-5 text-slate-400 transition-transform duration-300 ${
-                          dayOpen ? "rotate-180" : ""
-                        }`}
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          d="M6 9l6 6 6-6"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        />
-                      </svg>
-                    </button>
+                <div>
+                  <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+                    <h2 className="flex items-center gap-3 text-lg font-extrabold">
+                      <span className="flex h-7 w-7 items-center justify-center rounded-full bg-yellow-400 text-sm font-black text-black">
+                        2
+                      </span>
+                      Choose a time
+                    </h2>
 
-                    {dayOpen && (
-                      <div className="mt-3 p-4 rounded-2xl bg-slate-50 border border-slate-200">
-
-                        <div className="flex items-center justify-between mb-3">
-                          <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">
-                            Available Days
-                          </p>
-
-                          <span className="text-[10px] text-slate-400">
-                            Next 3 months
-                          </span>
-                        </div>
-
-                        <div className="grid grid-cols-3 sm:grid-cols-5 md:grid-cols-6 gap-2 max-h-[330px] overflow-y-auto pr-1">
-
-                          {availableDates.map((dateObj) => {
-                            const isSelected =
-                              selectedDate === dateObj.iso;
-
-                            return (
-                              <button
-                                key={dateObj.iso}
-                                type="button"
-                                onClick={() => {
-                                  setSelectedDate(dateObj.iso);
-                                  setSelectedTime("");
-                                  setDayOpen(false);
-                                }}
-                                className={`relative p-3 rounded-xl border text-center transition-all duration-200 ${
-                                  isSelected
-                                    ? "bg-yellow-400 border-yellow-400 text-slate-900 shadow-md shadow-yellow-400/20"
-                                    : "bg-white border-slate-200 text-slate-700 hover:border-yellow-400 hover:bg-yellow-50"
-                                }`}
-                              >
-                                <span className="block text-[9px] uppercase font-bold tracking-wider opacity-70">
-                                  {dateObj.monthName}
-                                </span>
-
-                                <span className="block text-xl font-black leading-tight mt-1">
-                                  {dateObj.dayNumber}
-                                </span>
-
-                                <span className="block text-[10px] font-medium opacity-70 mt-0.5">
-                                  {dateObj.dayName}
-                                </span>
-
-                                {isSelected && (
-                                  <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-slate-900" />
-                                )}
-                              </button>
-                            );
-                          })}
-
-                        </div>
-                      </div>
+                    {selectedDate && (
+                      <span className="text-sm text-stone-500">
+                        {formatLongDate(selectedDate)}
+                      </span>
                     )}
                   </div>
-                </div>
 
-                {/* =================================================
-                    TIME SELECTOR
-                ================================================== */}
-                <div className="space-y-2">
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                    {AVAILABLE_SLOTS.map((time) => {
+                      const booked = isSlotBooked(time);
+                      const past = isSlotPast(time);
+                      const unavailable = booked || past;
+                      const isSelected = selectedTime === time;
 
-                  <label className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">
-                    Choose Time
-                  </label>
+                      return (
+                        <button
+                          key={time}
+                          type="button"
+                          disabled={unavailable}
+                          aria-pressed={isSelected}
+                          onClick={() => setSelectedTime(time)}
+                          className={`rounded-xl border p-4 text-left transition-all duration-200 ${
+                            unavailable
+                              ? "cursor-not-allowed border-stone-200 bg-stone-100 text-stone-400"
+                              : isSelected
+                                ? "border-yellow-400 bg-yellow-400 text-black shadow-md shadow-yellow-400/30"
+                                : "border-stone-200 bg-white text-stone-800 hover:-translate-y-0.5 hover:border-yellow-400 hover:bg-yellow-50"
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <span
+                              className={`text-base font-black ${
+                                unavailable ? "line-through" : ""
+                              }`}
+                            >
+                              {time}
+                            </span>
 
-                  <div className="relative">
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setTimeOpen((prev) => !prev);
-                        setDayOpen(false);
-                      }}
-                      disabled={!selectedDate}
-                      className={`w-full flex items-center justify-between gap-4 px-5 py-4 rounded-2xl border transition-all duration-200 ${
-                        !selectedDate
-                          ? "bg-slate-100 border-slate-200 cursor-not-allowed opacity-60"
-                          : timeOpen
-                          ? "border-yellow-400 bg-yellow-50/40 ring-2 ring-yellow-100"
-                          : "border-slate-200 bg-slate-50 hover:border-yellow-300 hover:bg-yellow-50/30"
-                      }`}
-                    >
-                      <div className="flex items-center gap-3">
-
-                        <div className="w-10 h-10 rounded-xl bg-black text-yellow-400 flex items-center justify-center">
-                          <svg
-                            className="w-5 h-5"
-                            fill="none"
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
-                          >
-                            <circle
-                              cx="12"
-                              cy="12"
-                              r="9"
-                              strokeWidth="1.8"
-                            />
-
-                            <path
-                              d="M12 7v5l3 2"
-                              strokeWidth="1.8"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                            />
-                          </svg>
-                        </div>
-
-                        <div className="text-left">
-                          <p className="text-[10px] uppercase tracking-[0.14em] text-slate-400 font-bold">
-                            Selected Time
-                          </p>
-
-                          <p className="text-sm sm:text-base font-bold text-slate-900 mt-0.5">
-                            {selectedTime ||
-                              "Select an available time"}
-                          </p>
-                        </div>
-                      </div>
-
-                      <svg
-                        className={`w-5 h-5 text-slate-400 transition-transform duration-300 ${
-                          timeOpen ? "rotate-180" : ""
-                        }`}
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          d="M6 9l6 6 6-6"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        />
-                      </svg>
-                    </button>
-
-                    {timeOpen && selectedDate && (
-                      <div className="mt-3 p-4 rounded-2xl bg-slate-50 border border-slate-200">
-
-                        <div className="flex items-center justify-between mb-3">
-                          <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">
-                            Available Times
-                          </p>
-
-                          <span className="text-[10px] text-slate-400">
-                            {selectedDate}
-                          </span>
-                        </div>
-
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-
-                          {AVAILABLE_SLOTS.map((time) => {
-                            const booked = isSlotBooked(time);
-                            const isSelected =
-                              selectedTime === time;
-
-                            return (
-                              <button
-                                key={time}
-                                type="button"
-                                disabled={booked}
-                                onClick={() => {
-                                  setSelectedTime(time);
-                                  setTimeOpen(false);
-                                }}
-                                className={`p-4 rounded-xl border text-left transition-all duration-200 ${
-                                  booked
-                                    ? "bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed"
-                                    : isSelected
-                                    ? "bg-yellow-400 text-slate-900 border-yellow-400 shadow-md shadow-yellow-400/20"
-                                    : "bg-white border-slate-200 text-slate-800 hover:border-yellow-400 hover:bg-yellow-50"
+                            {!unavailable && (
+                              <span
+                                className={`h-2 w-2 rounded-full ${
+                                  isSelected ? "bg-black" : "bg-emerald-400"
                                 }`}
-                              >
-                                <div className="flex items-center justify-between gap-2">
+                              />
+                            )}
+                          </div>
 
-                                  <span
-                                    className={`text-base font-black ${
-                                      booked
-                                        ? "line-through"
-                                        : ""
-                                    }`}
-                                  >
-                                    {time}
-                                  </span>
-
-                                  {!booked && (
-                                    <span
-                                      className={`w-2 h-2 rounded-full ${
-                                        isSelected
-                                          ? "bg-slate-900"
-                                          : "bg-green-400"
-                                      }`}
-                                    />
-                                  )}
-                                </div>
-
-                                <span
-                                  className={`block text-[10px] font-medium mt-1 ${
-                                    booked
-                                      ? "text-slate-400"
-                                      : isSelected
-                                      ? "text-slate-700"
-                                      : "text-slate-400"
-                                  }`}
-                                >
-                                  {booked
-                                    ? "Booked"
-                                    : isSelected
-                                    ? "Selected"
-                                    : "Available"}
-                                </span>
-                              </button>
-                            );
-                          })}
-
-                        </div>
-                      </div>
-                    )}
+                          <span
+                            className={`mt-1 block text-[11px] font-medium ${
+                              isSelected ? "text-black/70" : "text-stone-400"
+                            }`}
+                          >
+                            {booked
+                              ? "Booked"
+                              : past
+                                ? "Passed"
+                                : isSelected
+                                  ? "Selected"
+                                  : "Available"}
+                          </span>
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
 
-                {/* =================================================
-                    CURRENT SELECTION SUMMARY
-                ================================================== */}
-                {selectedDate && selectedTime && (
-                 <div className="rounded-2xl bg-yellow-50 p-5 text-black">
+                {/* SUMMARY */}
 
-                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-
+                {hasSelection && (
+                  <div className="slide-down rounded-2xl bg-neutral-950 p-5 text-white">
+                    <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                       <div>
-                        <p className="text-[10px] uppercase tracking-[0.16em] text-white/40 font-bold">
-                          Your Session
+                        <p className="text-xs font-medium text-white/50">
+                          Your session
                         </p>
 
-                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1">
-                          <span className="text-sm font-bold">
-                            {selectedDateLabel}
-                          </span>
+                        <p className="mt-1 text-sm font-bold sm:text-base">
+                          {formatLongDate(selectedDate)}
+                        </p>
+                      </div>
 
-                          <span className="hidden sm:block text-white/20">
-                            •
-                          </span>
+                      <div className="flex gap-8">
+                        <div>
+                          <p className="text-xs font-medium text-white/50">
+                            Time
+                          </p>
+                          <p className="mt-1 text-sm font-bold text-yellow-400 sm:text-base">
+                            {selectedTime} to{" "}
+                            {addMinutes(selectedTime, SESSION_MINUTES)}
+                          </p>
+                        </div>
 
-                          <span className="text-sm font-bold text-yellow-400">
-                            {selectedTime}
-                          </span>
+                        <div>
+                          <p className="text-xs font-medium text-white/50">
+                            Duration
+                          </p>
+                          <p className="mt-1 text-sm font-bold sm:text-base">
+                            {SESSION_MINUTES} minutes
+                          </p>
                         </div>
                       </div>
-
-                      <div className="text-left sm:text-right">
-                        <p className="text-[10px] uppercase tracking-[0.16em] text-white/40 font-bold">
-                          Duration
-                        </p>
-
-                        <p className="text-sm font-bold">
-                          90 minutes
-                        </p>
-                      </div>
-
                     </div>
                   </div>
                 )}
 
-                {/* =================================================
-                    ERROR
-                ================================================== */}
+                {/* ERROR */}
+
                 {errorMessage && (
-                  <div className="p-4 rounded-xl bg-red-50 border border-red-200 text-red-600 text-sm font-medium text-center">
+                  <div
+                    role="alert"
+                    className="slide-down rounded-xl border border-red-200 bg-red-50 p-4 text-center text-sm font-medium text-red-600"
+                  >
                     {errorMessage}
                   </div>
                 )}
 
-                {/* =================================================
-                    ACCOUNT / NOTIFICATION WARNING
-                ================================================== */}
-                {selectedDate && selectedTime && (
-                  <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-4 sm:px-5">
+                {/* ACCOUNT / NOTIFICATION NOTE */}
 
+                {hasSelection && (
+                  <div className="slide-down rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4 sm:px-5">
                     <div className="flex items-start gap-3">
-
-                      {/* Warning Icon */}
-                      <div className="flex-shrink-0 w-9 h-9 rounded-xl bg-red-100 text-red-600 flex items-center justify-center">
+                      <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-700">
                         <svg
-                          className="w-5 h-5"
+                          className="h-5 w-5"
                           fill="none"
                           stroke="currentColor"
                           viewBox="0 0 24 24"
+                          aria-hidden="true"
                         >
                           <path
                             strokeLinecap="round"
@@ -921,73 +901,72 @@ export default function CoachBookingPage() {
                         </svg>
                       </div>
 
-                      {/* Warning Text */}
                       <div className="min-w-0">
-                        <p className="text-sm font-bold text-red-700">
-                          Please review your account before booking
+                        <p className="text-sm font-bold text-amber-900">
+                          Check your account before booking
                         </p>
 
-                        <p className="text-xs sm:text-sm text-red-600/90 leading-relaxed mt-1.5">
-                          This booking will use the username and email
-                          address associated with your current account.
-                          Please make sure you are signed in to the
-                          correct account before confirming your session.
-                          Keep an eye on your notifications for booking
-                          updates, including whether your session is
-                          accepted or refused by the coach.
+                        <p className="mt-1.5 text-xs leading-relaxed text-amber-800/90 sm:text-sm">
+                          This booking uses the username and email of the
+                          account you are signed in with, so make sure it is
+                          the right one. Keep an eye on your notifications
+                          for updates, including whether the coach accepts or
+                          refuses your session.
                         </p>
                       </div>
-
                     </div>
                   </div>
                 )}
 
-                {/* =================================================
-                    CONFIRMATION
-                ================================================== */}
-                <div className="pt-6 border-t border-slate-200">
+                {/* CONFIRMATION */}
 
-                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-5">
-
+                <div className="border-t border-stone-200 pt-6">
+                  <div className="flex flex-col items-stretch justify-between gap-5 sm:flex-row sm:items-center">
                     <div>
-                      <span className="text-[10px] uppercase tracking-[0.15em] text-slate-400 block font-bold">
-                        Total Due
+                      <span className="block text-sm text-stone-500">
+                        Total due
                       </span>
 
-                      <div className="flex items-baseline gap-2 mt-1">
-                        <span className="text-3xl font-black text-yellow-500">
-                          {coach.hourly_rate}
+                      <div className="mt-1 flex items-baseline gap-2">
+                        <span className="text-3xl font-black text-stone-900">
+                          {price}
                         </span>
 
-                        <span className="text-sm font-bold text-slate-500">
+                        <span className="text-sm font-bold text-stone-500">
                           DZD
                         </span>
                       </div>
                     </div>
 
-                    <button
-                      type="button"
-                      onClick={handleBooking}
-                      disabled={submitting || !selectedTime}
-                      className={`w-full sm:w-auto min-w-[210px] px-8 py-4 rounded-xl font-bold text-sm transition-all shadow-md ${
-                        submitting || !selectedTime
-                          ? "bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200"
-                          : "bg-yellow-400 hover:bg-yellow-300 text-slate-900 shadow-yellow-400/20 hover:shadow-yellow-400/30 hover:-translate-y-0.5"
-                      }`}
-                    >
-                      {submitting
-                        ? "Processing Booking..."
-                        : "Confirm Booking Now"}
-                    </button>
+                    <div className="flex flex-col items-stretch gap-2 sm:items-end">
+                      <button
+                        type="button"
+                        onClick={handleBooking}
+                        disabled={submitting || !selectedTime}
+                        className={`w-full min-w-[220px] rounded-xl px-8 py-4 text-sm font-bold shadow-md transition-all sm:w-auto ${
+                          submitting || !selectedTime
+                            ? "cursor-not-allowed border border-stone-200 bg-stone-100 text-stone-400 shadow-none"
+                            : "bg-yellow-400 text-black shadow-yellow-400/20 hover:-translate-y-0.5 hover:bg-yellow-300 hover:shadow-yellow-400/30"
+                        }`}
+                      >
+                        {submitting
+                          ? "Processing booking..."
+                          : "Confirm booking"}
+                      </button>
 
+                      {!selectedTime && (
+                        <p className="text-xs text-stone-400">
+                          Pick a day and a time to continue.
+                        </p>
+                      )}
+                    </div>
                   </div>
                 </div>
-
               </div>
             </section>
           </div>
         )}
       </div>
-    </div>
+    </main>
   );
 }
